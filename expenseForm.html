@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>交通費申請フォーム</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.20.0/sdk.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .modal-content {
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #formError {
+      color: red;
+      margin-top: 10px;
+    }
+    .input-suffix {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .input-suffix input {
+      flex: 1;
+    }
+    #photoPreview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    #photoPreview img {
+      max-width: 100px;
+      border: 1px solid #ccc;
+    }
+    #confirmImagePreview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    #confirmImagePreview img {
+      max-width: 100px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+
+<form id="expenseForm">
+  <h1 id="formTitle"></h1>
+
+  <label for="siteNameDisplay">拠点名:</label>
+  <input type="text" id="siteNameDisplay" readonly disabled />
+
+  <label for="applicantNameDisplay">申請者名:</label>
+  <input type="text" id="applicantNameDisplay" readonly disabled />
+
+  <label for="usageDate">使用日時:</label>
+  <input type="date" id="usageDate" required />
+
+  <label for="expenseType">費目:</label>
+  <select id="expenseType" required>
+    <option value="">選択してください</option>
+    <option value="公共運賃">公共運賃</option>
+    <option value="駐車場">駐車場</option>
+    <option value="ガソリン代">ガソリン代</option>
+    <option value="その他">その他</option>
+  </select>
+
+  <div id="otherDetailWrapper" style="display: none; margin-top: 10px;">
+    <label for="otherDetail">その他の費目詳細:</label>
+    <input type="text" id="otherDetail" placeholder="具体的な内容をご記入ください" />
+  </div>
+
+  <label for="amount">金額:</label>
+  <div class="input-suffix">
+    <input type="number" id="amount" min="0" required />
+    <span>円</span>
+  </div>
+
+  <div style="margin-top: 15px;">
+    <label>証憑レシート（複数可能）:</label>
+    <input type="file" id="imageUpload" multiple accept="image/*" hidden />
+    <label for="imageUpload" class="custom-file-label" style="display: inline-block; padding: 10px; background-color: #00b900; color: white; border-radius: 5px; cursor: pointer;">画像を選択</label>
+    <span class="file-name" id="fileNameDisplay">未選択</span>
+  </div>
+
+  <div id="photoPreview"></div>
+
+  <button type="button" id="submitExpense" style="margin-top: 20px;">送信</button>
+  <div id="formError"></div>
+</form>
+
+<div id="confirmationModal" class="modal" style="display: none;">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <h3>交通費申請を送信しますか？</h3>
+    <div class="preview-item"><b>拠点名:</b> <span id="confirmSiteName"></span></div>
+    <div class="preview-item"><b>申請者名:</b> <span id="confirmNickname"></span></div>
+    <div class="preview-item"><b>使用日時:</b> <span id="confirmUsageDate"></span></div>
+    <div class="preview-item"><b>費目:</b> <span id="confirmExpenseType"></span></div>
+    <div class="preview-item" id="confirmOtherDetailWrapper" style="display:none;"><b>その他詳細:</b> <span id="confirmOtherDetail"></span></div>
+    <div class="preview-item"><b>金額:</b> <span id="confirmAmount"></span>円</div>
+    <div id="confirmImagePreview"></div>
+    <button id="confirmSubmit" style="margin-top: 15px;">確定</button>
+    <div class="loading-msg" id="loadingMsg" style="display: none;">お待ちください・・・</div>
+  </div>
+</div>
+
+<script>
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbwyDc0GFNBChfjsbiAP9HLmWTWELhUPUOcsbV1iQZagEbUf-wHm1dLYJdx2XTkWLT8E8Q/exec";
+
+const params = new URLSearchParams(window.location.search);
+const userId = params.get("userId");
+const siteName = params.get("siteName");
+const nickname = params.get("nickname");
+
+window.onload = function () {
+  const titleElement = document.getElementById("formTitle");
+  titleElement.innerHTML = `ようこそ${nickname}さん、交通費申請をしてください`;
+
+  document.getElementById("siteNameDisplay").value = siteName;
+  document.getElementById("applicantNameDisplay").value = nickname;
+};
+
+// 費目の切り替え
+document.getElementById("expenseType").addEventListener("change", function() {
+  const otherDetailWrapper = document.getElementById("otherDetailWrapper");
+  if (this.value === "その他") {
+    otherDetailWrapper.style.display = "block";
+  } else {
+    otherDetailWrapper.style.display = "none";
+    document.getElementById("otherDetail").value = "";
+  }
+});
+
+// 画像圧縮
+async function compressImage(base64Data) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const maxWidth = 800;
+      const maxHeight = 600;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      if (height > maxHeight) {
+        width = Math.round((width * maxHeight) / height);
+        height = maxHeight;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressed = canvas.toDataURL("image/jpeg", 0.7);
+      resolve(compressed.split(",")[1]); // base64部分のみ
+    };
+    img.src = base64Data;
+  });
+}
+
+// 複数画像選択
+let imagesBase64List = [];
+document.getElementById("imageUpload").addEventListener("change", async (e) => {
+  const files = e.target.files;
+  const fileNameDisplay = document.getElementById("fileNameDisplay");
+  const photoPreview = document.getElementById("photoPreview");
+  const confirmImagePreview = document.getElementById("confirmImagePreview");
+  
+  imagesBase64List = [];
+  photoPreview.innerHTML = "";
+  confirmImagePreview.innerHTML = "";
+
+  if (files && files.length > 0) {
+    fileNameDisplay.textContent = `${files.length}件のファイルを選択`;
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const reader = new FileReader();
+        
+        await new Promise((resolve) => {
+            reader.onload = async (event) => {
+                const base64Str = event.target.result;
+                const compressed = await compressImage(base64Str);
+                imagesBase64List.push(compressed);
+                
+                photoPreview.innerHTML += `<img src="${base64Str}" alt="receipt preview">`;
+                confirmImagePreview.innerHTML += `<img src="${base64Str}" alt="receipt preview">`;
+                resolve();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+  } else {
+    fileNameDisplay.textContent = "未選択";
+  }
+});
+
+// バリデーション付き送信イベント
+document.getElementById("submitExpense").addEventListener("click", () => {
+  const usageDate = document.getElementById("usageDate").value;
+  const expenseType = document.getElementById("expenseType").value;
+  const otherDetail = document.getElementById("otherDetail").value;
+  const amount = document.getElementById("amount").value;
+
+  const errorEl = document.getElementById("formError");
+  errorEl.textContent = "";
+
+  const missingFields = [];
+  if (!usageDate) missingFields.push("使用日時");
+  if (!expenseType) missingFields.push("費目");
+  if (expenseType === "その他" && !otherDetail) missingFields.push("その他の詳細");
+  if (!amount || isNaN(amount) || amount <= 0) missingFields.push("正しい金額");
+
+  if (missingFields.length > 0) {
+    errorEl.textContent = `${missingFields.join("、")}を入力してください。`;
+    return;
+  }
+
+  // モーダルへ反映
+  document.getElementById("confirmSiteName").textContent = siteName;
+  document.getElementById("confirmNickname").textContent = nickname;
+  document.getElementById("confirmUsageDate").textContent = usageDate;
+  document.getElementById("confirmExpenseType").textContent = expenseType;
+  
+  const confirmOtherDetailWrapper = document.getElementById("confirmOtherDetailWrapper");
+  if (expenseType === "その他") {
+    document.getElementById("confirmOtherDetail").textContent = otherDetail;
+    confirmOtherDetailWrapper.style.display = "block";
+  } else {
+    confirmOtherDetailWrapper.style.display = "none";
+  }
+  
+  document.getElementById("confirmAmount").textContent = amount;
+  
+  document.getElementById("confirmationModal").style.display = "flex";
+});
+
+// 確定→送信
+document.getElementById("confirmSubmit").addEventListener("click", async () => {
+  document.getElementById("confirmSubmit").disabled = true;
+  document.getElementById("loadingMsg").style.display = "block";
+
+  const formData = new URLSearchParams({
+    action: "expense_submit",
+    userId: userId,
+    siteName: siteName,
+    nickname: nickname,
+    usageDate: document.getElementById("usageDate").value,
+    expenseType: document.getElementById("expenseType").value,
+    otherDetail: document.getElementById("otherDetail").value,
+    amount: document.getElementById("amount").value,
+    imagesBase64: JSON.stringify(imagesBase64List) // JSON文字列として送信
+  });
+
+  try {
+    const response = await fetch(BACKEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData
+    });
+
+    const resultText = await response.text();
+    let result;
+    try {
+      result = JSON.parse(resultText);
+    } catch (e) {
+      alert("レスポンスが不正です: " + resultText);
+      resetModal();
+      return;
+    }
+
+    if (result.status === "success") {
+      showSuccessPopup("交通費申請が完了しました。");
+      closeModal();
+      document.getElementById("expenseForm").reset();
+      document.getElementById("otherDetailWrapper").style.display = "none";
+      document.getElementById("photoPreview").innerHTML = "";
+      document.getElementById("confirmImagePreview").innerHTML = "";
+      imagesBase64List = [];
+      document.getElementById("fileNameDisplay").textContent = "未選択";
+      
+      // ユーザー情報再設定
+      document.getElementById("siteNameDisplay").value = siteName;
+      document.getElementById("applicantNameDisplay").value = nickname;
+    } else {
+      alert("エラーが発生しました: " + result.message);
+    }
+  } catch (err) {
+    alert("送信に失敗しました: " + err.message);
+  } finally {
+    resetModal();
+  }
+});
+
+function showSuccessPopup(message) {
+  const successModal = document.createElement("div");
+  successModal.classList.add("modal", "show");
+  successModal.innerHTML = `
+    <div class="modal-content">
+      <h3>✅ ${message}</h3>
+      <button onclick="closeSuccessPopup()" style="margin-top: 15px;">OK</button>
+    </div>`;
+  document.body.appendChild(successModal);
+}
+
+function closeSuccessPopup() {
+  const successModal = document.querySelector(".modal.show");
+  if (successModal) successModal.remove();
+}
+
+function closeModal() {
+  document.getElementById("confirmationModal").style.display = "none";
+}
+
+function resetModal() {
+  document.getElementById("confirmSubmit").disabled = false;
+  document.getElementById("loadingMsg").style.display = "none";
+}
+</script>
+
+</body>
+</html>

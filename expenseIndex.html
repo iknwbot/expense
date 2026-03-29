@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交通費申請ユーザ確認</title>
+    <script src="https://static.line-scdn.net/liff/edge/versions/2.20.0/sdk.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<form id="userForm">
+    <h1 id="formTitle" style="display:none;">交通費申請ユーザ登録</h1>
+    <div id="loading">お待ちください...</div>
+    <div id="userInfo" class="form-group" style="display: none;">
+        <p><span id="nickname"></span> さん、以下より拠点名を選択してください。</p>
+        <label for="siteSelect">拠点:</label>
+        <select id="siteSelect"></select>
+        <div class="button-group">
+            <button id="registerBtn">登録</button>
+        </div>
+    </div>
+</form>
+
+<script>
+const LIFF_ID = "2007288568-Oj9P6yMn";
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbwyDc0GFNBChfjsbiAP9HLmWTWELhUPUOcsbV1iQZagEbUf-wHm1dLYJdx2XTkWLT8E8Q/exec";
+let userId, displayName;
+
+async function initLIFF() {
+    try {
+        await liff.init({ liffId: LIFF_ID });
+        if (!liff.isLoggedIn()) {
+            liff.login();
+            return;
+        }
+
+        const profile = await liff.getProfile();
+        userId = profile.userId;
+        displayName = profile.displayName;
+
+        document.getElementById("nickname").textContent = displayName;
+        await checkUserRegistration();
+    } catch (error) {
+        console.error(error);
+        alert("LIFFの初期化に失敗しました。再読み込みしてください。");
+    }
+}
+
+async function checkUserRegistration() {
+    try {
+        const response = await fetch(`${BACKEND_URL}?action=checkUser&userId=${userId}`);
+        if (!response.ok) throw new Error(`HTTPエラー`);
+
+        const result = await response.json();
+        if (result.exists) {
+            const siteName = result.siteName;
+            const nickname = result.nickname;
+            window.location.href = `expenseForm.html?userId=${encodeURIComponent(userId)}&siteName=${encodeURIComponent(siteName)}&nickname=${encodeURIComponent(nickname)}`;
+        } else {
+            await loadSiteOptions();
+            document.getElementById("loading").style.display = "none";
+            document.getElementById("userInfo").style.display = "block";
+            document.getElementById("formTitle").style.display = "block";
+        }
+    } catch (error) {
+        console.error(error);
+        alert("ユーザ確認に失敗しました。");
+    }
+}
+
+async function loadSiteOptions() {
+    try {
+        const response = await fetch(`${BACKEND_URL}?action=getSites`);
+        const sites = await response.json();
+        const select = document.getElementById("siteSelect");
+        sites.forEach(site => {
+            const option = document.createElement("option");
+            option.value = site;
+            option.textContent = site;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error(error);
+        alert("拠点リストの取得に失敗しました。");
+    }
+}
+
+async function registerUser() {
+    const siteName = document.getElementById("siteSelect").value;
+    try {
+        const response = await fetch(BACKEND_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                action: "registerUser",
+                userId: userId,
+                displayName: displayName,
+                siteName: siteName
+            })
+        });
+        const result = await response.json();
+        if (result.status === "success") {
+            alert("登録が完了しました！");
+            window.location.href = `expenseForm.html?userId=${encodeURIComponent(userId)}&siteName=${encodeURIComponent(siteName)}&nickname=${encodeURIComponent(displayName)}`;
+        } else {
+            alert("登録に失敗しました。");
+        }
+    } catch (error) {
+        console.error(error);
+        alert("登録エラーが発生しました。");
+    }
+}
+
+document.getElementById("registerBtn").addEventListener("click", async (event) => {
+    event.preventDefault();
+    await registerUser();
+});
+
+window.onload = function() {
+    initLIFF();
+};
+</script>
+
+</body>
+</html>
